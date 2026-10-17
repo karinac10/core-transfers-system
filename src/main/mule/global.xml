@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:api-gateway="http://www.mulesoft.org/schema/mule/api-gateway"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:secure-properties="http://www.mulesoft.org/schema/mule/secure-properties"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/secure-properties http://www.mulesoft.org/schema/mule/secure-properties/current/mule-secure-properties.xsd
+http://www.mulesoft.org/schema/mule/api-gateway http://www.mulesoft.org/schema/mule/api-gateway/current/mule-api-gateway.xsd">
+
+    <!-- Override at deploy: -Menv=dev|qa|prod  /  -Msecure.key=<32-char-key> -->
+
+    <!-- Propiedades plain — todo el config vive en secure-{env}.yaml -->
+
+    <!-- Soporte para valores cifrados con ![] cuando se requiera en prod -->
+    <secure-properties:config
+        name="Secure_Properties_Config"
+        key="${secure.key}"
+        file="config/secure-${env}.yaml"
+        doc:name="Secure Properties Config">
+        <secure-properties:encrypt algorithm="AES" mode="CBC"/>
+    </secure-properties:config>
+
+    <!-- HTTP Request → Core Bancario Legado -->
+    <http:request-config
+        name="core-legado-request-config"
+        basePath="${core.legado.api.basepath}"
+        doc:name="Core Legado Request Config"
+        responseTimeout="${core.legado.api.timeout}">
+        <http:request-connection
+            host="${core.legado.api.host}"
+            port="${core.legado.api.port}"
+            protocol="${core.legado.api.protocol}"/>
+    </http:request-config>
+    <api-gateway:autodiscovery apiId="${secure::api.id}" ignoreBasePath="true" doc:name="API Autodiscovery" doc:id="9d8e7f6a-5b4c-3d2e-1f0a-bc9d8e7f6a5b" flowRef="core-transfers-system-api-main"/>
+
+
+</mule>

@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <!--
+        Global error handler para la System API.
+        HTTP:CONNECTIVITY / TIMEOUT = core bancario caído.
+        Los códigos de negocio (51, 62) se manejan en el flow de implementación con raise-error.
+    -->
+    <error-handler name="global-error-handler">
+
+        <on-error-propagate type="HTTP:CONNECTIVITY" logException="false" doc:name="Core legado no disponible">
+            <ee:transform>
+                <ee:message>
+                    <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+  codigo:    "CORE_NO_DISPONIBLE",
+  mensaje:   "El core bancario no está disponible. Código: 91.",
+  timestamp: now() as String {format: "yyyy-MM-dd'T'HH:mm:ssZ"}
+}]]></ee:set-payload>
+                </ee:message>
+                <ee:variables>
+                    <ee:set-variable variableName="httpStatus">503</ee:set-variable>
+                </ee:variables>
+            </ee:transform>
+        </on-error-propagate>
+
+        <on-error-propagate type="HTTP:TIMEOUT" logException="false" doc:name="Core legado timeout">
+            <ee:transform>
+                <ee:message>
+                    <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+  codigo:    "CORE_NO_DISPONIBLE",
+  mensaje:   "El core bancario no respondió a tiempo. Código: 91.",
+  timestamp: now() as String {format: "yyyy-MM-dd'T'HH:mm:ssZ"}
+}]]></ee:set-payload>
+                </ee:message>
+                <ee:variables>
+                    <ee:set-variable variableName="httpStatus">503</ee:set-variable>
+                </ee:variables>
+            </ee:transform>
+        </on-error-propagate>
+
+        <on-error-propagate type="TRANSFERENCIA:SALDO_INSUFICIENTE" logException="false" doc:name="422 Saldo insuficiente">
+            <ee:transform>
+                <ee:message>
+                    <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+  codigo:    "SALDO_INSUFICIENTE",
+  mensaje:   "Saldo insuficiente en cuenta de origen. Código core: 51.",
+  timestamp: now() as String {format: "yyyy-MM-dd'T'HH:mm:ssZ"}
+}]]></ee:set-payload>
+                </ee:message>
+                <ee:variables>
+                    <ee:set-variable variableName="httpStatus">422</ee:set-variable>
+                </ee:variables>
+            </ee:transform>
+        </on-error-propagate>
+
+        <on-error-propagate type="TRANSFERENCIA:CUENTA_BLOQUEADA" logException="false" doc:name="422 Cuenta bloqueada">
+            <ee:transform>
+                <ee:message>
+                    <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+  codigo:    "CUENTA_BLOQUEADA",
+  mensaje:   "La cuenta está bloqueada. Código core: 62.",
+  timestamp: now() as String {format: "yyyy-MM-dd'T'HH:mm:ssZ"}
+}]]></ee:set-payload>
+                </ee:message>
+                <ee:variables>
+                    <ee:set-variable variableName="httpStatus">422</ee:set-variable>
+                </ee:variables>
+            </ee:transform>
+        </on-error-propagate>
+
+        <on-error-propagate type="ANY" logException="true" doc:name="500 Error inesperado">
+            <ee:transform>
+                <ee:message>
+                    <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+  codigo:    "ERROR_INTERNO",
+  mensaje:   "Error inesperado en la capa de sistema.",
+  timestamp: now() as String {format: "yyyy-MM-dd'T'HH:mm:ssZ"}
+}]]></ee:set-payload>
+                </ee:message>
+                <ee:variables>
+                    <ee:set-variable variableName="httpStatus">500</ee:set-variable>
+                </ee:variables>
+            </ee:transform>
+        </on-error-propagate>
+
+    </error-handler>
+
+	<sub-flow name="global_apiEntryPoint" doc:id="f1e2d3c4-b5a6-7890-ef12-ab3456789001" >
+		<try doc:name="Validate Request Payload" doc:id="f1e2d3c4-b5a6-7890-ef12-ab3456789002" >
+			<ee:transform doc:name="Check Request Payload" doc:id="f1e2d3c4-b5a6-7890-ef12-ab3456789003" >
+				<ee:message >
+					<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+if (attributes.method == "GET" or isEmpty(attributes.method))
+    {}
+else
+    payload as Object]]></ee:set-payload>
+				</ee:message>
+			</ee:transform>
+			<error-handler >
+				<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="f1e2d3c4-b5a6-7890-ef12-ab3456789004" type="MULE:EXPRESSION" >
+					<raise-error doc:name="Raise Validation BAD_REQUEST" doc:id="f1e2d3c4-b5a6-7890-ef12-ab3456789005" type="APP:INVALID_PAYLOAD" />
+				</on-error-propagate>
+			</error-handler>
+		</try>
+		<ee:transform doc:name="transactionId and incomingAttr" doc:id="f1e2d3c4-b5a6-7890-ef12-ab3456789006" >
+			<ee:message />
+			<ee:variables >
+				<ee:set-variable variableName="transactionId" ><![CDATA[%dw 2.0
+output application/java
+---
+attributes.headers."X-Idempotency-Key"]]></ee:set-variable>
+				<ee:set-variable variableName="incomingAttr" ><![CDATA[output application/json
+---
+message.attributes]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<ee:transform doc:name="flowVar" doc:id="f1e2d3c4-b5a6-7890-ef12-ab3456789007" >
+			<ee:message />
+			<ee:variables >
+				<ee:set-variable variableName="flowVar" ><![CDATA[%dw 2.0
+output application/json
+---
+vars.incomingAttr.requestUri]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+	</sub-flow>
+
+    <sub-flow name="log-request-sf">
+        <logger level="INFO"
+            message="#['[' ++ correlationId ++ '] REQUEST ' ++ (attributes.method default '') ++ ' ' ++ (attributes.requestPath default '')]"
+            doc:name="Log Request"/>
+    </sub-flow>
+
+    <sub-flow name="log-response-sf">
+        <logger level="INFO"
+            message="#['[' ++ correlationId ++ '] RESPONSE status=' ++ ((vars.httpStatus default 200) as String)]"
+            doc:name="Log Response"/>
+    </sub-flow>
+
+</mule>

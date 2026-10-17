@@ -1,0 +1,26 @@
+logging:
+  apiName: "core-transfers-system"
+  layer: "System API"
+
+https:
+  listener:
+    host: "0.0.0.0"
+    port: "8083"
+    timeout: "60000"
+    path: "/api/*"
+
+# Until Successful
+untilSuccessful:
+  retries: "3"
+  delay: "3000"
+
+# Connection to Core Bancario Legado
+core:
+  legado:
+    api:
+      protocol: "HTTP"
+      host: "core-bancario-qa.banco.internal"
+      port: "8080"
+      timeout: "30000"
+      basepath: "/core/api"
+      transferenciasPath: "/transferencias"
