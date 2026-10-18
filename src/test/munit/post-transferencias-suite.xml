@@ -1,0 +1,271 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+        http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd
+        http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <munit:config name="post-transferencias-suite" doc:id="aa000001-0001-0001-0001-000000000001"/>
+
+    <!-- ================================================================
+         TEST 1 — codigo 00: 200 con codigoCore, glosa uppercase, fechaHora UTC
+         Reglas: behavior > execution > validation  (sin error-handler, flujo normal)
+         ================================================================ -->
+    <munit:test name="post-t1-codigo-00-happy-path"
+                description="codigo 00: httpStatus=200, codigoCore=00, glosa uppercase, fechaHora UTC 14 chars"
+                doc:id="aa000002-0001-0001-0001-000000000002">
+
+        <munit:behavior>
+            <munit-tools:mock-when processor="mule:flow-ref" doc:id="aa000003-0001-0001-0001-000000000003">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="name" whereValue="simulate-core-legado-sf"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:variables>
+                        <munit-tools:variable key="codigoCore"        value="00"/>
+                        <munit-tools:variable key="descripcionCore"   value="Aprobada"/>
+                        <munit-tools:variable key="idTransaccionCore" value="TXN-MOCK-00001"/>
+                    </munit-tools:variables>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+
+        <munit:execution>
+            <munit-tools:set-event doc:id="aa000004-0001-0001-0001-000000000004">
+                <munit-tools:payload mediaType="application/json"
+                    value='#[output application/json --- {cuentaOrigen: "100200300", cuentaDestino: "900800700", codigoBanco: "BIZ-0042", monto: 150.75, moneda: "USD", glosa: "Pago de alquiler", fechaSolicitud: "2026-10-01T14:32:10-06:00"}]'/>
+                <munit-tools:variables>
+                    <munit-tools:variable key="transactionId" value="t1-idempotency-key"/>
+                </munit-tools:variables>
+            </munit-tools:set-event>
+            <flow-ref name="post-transferencias-impl-sf" doc:id="aa000005-0001-0001-0001-000000000005"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that doc:id="aa000006-0001-0001-0001-000000000006"
+                expression="#[vars.httpStatus]"
+                is="#[MunitTools::equalTo(200)]"
+                message="httpStatus debe ser 200"/>
+            <munit-tools:assert-that doc:id="aa000007-0001-0001-0001-000000000007"
+                expression="#[payload.codigoCore]"
+                is="#[MunitTools::equalTo('00')]"
+                message="codigoCore debe ser 00"/>
+            <munit-tools:assert-that doc:id="aa000008-0001-0001-0001-000000000008"
+                expression="#[payload.descripcionCore]"
+                is="#[MunitTools::equalTo('Aprobada')]"
+                message="descripcionCore debe ser Aprobada"/>
+            <munit-tools:assert-that doc:id="aa000009-0001-0001-0001-000000000009"
+                expression="#[payload.enviadoAlCore.glosa]"
+                is="#[MunitTools::equalTo('PAGO DE ALQUILER')]"
+                message="glosa debe ser uppercase: PAGO DE ALQUILER"/>
+            <munit-tools:assert-that doc:id="aa00000a-0001-0001-0001-000000000010"
+                expression="#[sizeOf(payload.enviadoAlCore.fechaHora as String) == 14]"
+                is="#[MunitTools::equalTo(true)]"
+                message="fechaHora debe tener 14 chars (yyyyMMddHHmmss)"/>
+            <munit-tools:assert-that doc:id="aa00000b-0001-0001-0001-000000000011"
+                expression="#[payload.enviadoAlCore.fechaHora]"
+                is="#[MunitTools::equalTo('20261001203210')]"
+                message="2026-10-01T14:32:10-06:00 -&gt; UTC -&gt; 20261001203210"/>
+            <munit-tools:assert-that doc:id="aa00000c-0001-0001-0001-000000000012"
+                expression="#[payload.idTransaccionCore]"
+                is="#[MunitTools::equalTo('TXN-MOCK-00001')]"
+                message="idTransaccionCore viene del mock"/>
+        </munit:validation>
+
+    </munit:test>
+
+    <!-- ================================================================
+         TEST 2 — codigo 51: 200 con codigoCore=51 (Process decide SALDO_INSUFICIENTE)
+         System API NO lanza error — retorna raw data
+         ================================================================ -->
+    <munit:test name="post-t2-codigo-51-pass-through"
+                description="codigo 51: httpStatus=200, codigoCore=51 — System no interpreta, Process lo hace"
+                doc:id="aa000020-0002-0002-0002-000000000020">
+
+        <munit:behavior>
+            <munit-tools:mock-when processor="mule:flow-ref" doc:id="aa000021-0002-0002-0002-000000000021">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="name" whereValue="simulate-core-legado-sf"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:variables>
+                        <munit-tools:variable key="codigoCore"        value="51"/>
+                        <munit-tools:variable key="descripcionCore"   value="Saldo insuficiente"/>
+                        <munit-tools:variable key="idTransaccionCore" value="TXN-MOCK-51001"/>
+                    </munit-tools:variables>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+
+        <munit:execution>
+            <munit-tools:set-event doc:id="aa000022-0002-0002-0002-000000000022">
+                <munit-tools:payload mediaType="application/json"
+                    value='#[output application/json --- {cuentaOrigen: "100200300", cuentaDestino: "900800700", codigoBanco: "BIZ-0042", monto: 150.75, moneda: "USD", glosa: "Pago alquiler", fechaSolicitud: "2026-10-01T14:32:10-06:00"}]'/>
+                <munit-tools:variables>
+                    <munit-tools:variable key="transactionId" value="t2-idempotency-key"/>
+                </munit-tools:variables>
+            </munit-tools:set-event>
+            <flow-ref name="post-transferencias-impl-sf" doc:id="aa000023-0002-0002-0002-000000000023"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that doc:id="aa000024-0002-0002-0002-000000000024"
+                expression="#[vars.httpStatus]"
+                is="#[MunitTools::equalTo(200)]"
+                message="httpStatus debe ser 200 para codigo 51"/>
+            <munit-tools:assert-that doc:id="aa000025-0002-0002-0002-000000000025"
+                expression="#[payload.codigoCore]"
+                is="#[MunitTools::equalTo('51')]"
+                message="codigoCore debe ser 51"/>
+            <munit-tools:assert-that doc:id="aa000026-0002-0002-0002-000000000026"
+                expression="#[payload.descripcionCore]"
+                is="#[MunitTools::equalTo('Saldo insuficiente')]"
+                message="descripcionCore debe ser la del core"/>
+        </munit:validation>
+
+    </munit:test>
+
+    <!-- ================================================================
+         TEST 3 — codigo 62: 200 con codigoCore=62 (Process decide CUENTA_BLOQUEADA)
+         ================================================================ -->
+    <munit:test name="post-t3-codigo-62-pass-through"
+                description="codigo 62: httpStatus=200, codigoCore=62 — System no interpreta"
+                doc:id="aa000030-0003-0003-0003-000000000030">
+
+        <munit:behavior>
+            <munit-tools:mock-when processor="mule:flow-ref" doc:id="aa000031-0003-0003-0003-000000000031">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="name" whereValue="simulate-core-legado-sf"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:variables>
+                        <munit-tools:variable key="codigoCore"        value="62"/>
+                        <munit-tools:variable key="descripcionCore"   value="Cuenta bloqueada"/>
+                        <munit-tools:variable key="idTransaccionCore" value="TXN-MOCK-62001"/>
+                    </munit-tools:variables>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+
+        <munit:execution>
+            <munit-tools:set-event doc:id="aa000032-0003-0003-0003-000000000032">
+                <munit-tools:payload mediaType="application/json"
+                    value='#[output application/json --- {cuentaOrigen: "100200300", cuentaDestino: "900800700", codigoBanco: "BIZ-0042", monto: 75.00, moneda: "USD", glosa: "Test cuenta bloqueada", fechaSolicitud: "2026-10-01T14:32:10-06:00"}]'/>
+                <munit-tools:variables>
+                    <munit-tools:variable key="transactionId" value="t3-idempotency-key"/>
+                </munit-tools:variables>
+            </munit-tools:set-event>
+            <flow-ref name="post-transferencias-impl-sf" doc:id="aa000033-0003-0003-0003-000000000033"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that doc:id="aa000034-0003-0003-0003-000000000034"
+                expression="#[vars.httpStatus]"
+                is="#[MunitTools::equalTo(200)]"
+                message="httpStatus debe ser 200 para codigo 62"/>
+            <munit-tools:assert-that doc:id="aa000035-0003-0003-0003-000000000035"
+                expression="#[payload.codigoCore]"
+                is="#[MunitTools::equalTo('62')]"
+                message="codigoCore debe ser 62"/>
+        </munit:validation>
+
+    </munit:test>
+
+    <!-- ================================================================
+         TEST 4 — codigo 91: lanza TRANSFERENCIA:CORE_NO_DISPONIBLE
+         expectedErrorType captura el error sin necesitar munit:error-handler
+         ================================================================ -->
+    <munit:test name="post-t4-codigo-91-core-no-disponible"
+                description="codigo 91: lanza TRANSFERENCIA:CORE_NO_DISPONIBLE — unico codigo que interrumpe"
+                expectedErrorType="TRANSFERENCIA:CORE_NO_DISPONIBLE"
+                doc:id="aa000040-0004-0004-0004-000000000040">
+
+        <munit:behavior>
+            <munit-tools:mock-when processor="mule:flow-ref" doc:id="aa000041-0004-0004-0004-000000000041">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="name" whereValue="simulate-core-legado-sf"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:variables>
+                        <munit-tools:variable key="codigoCore"        value="91"/>
+                        <munit-tools:variable key="descripcionCore"   value="Core no disponible"/>
+                        <munit-tools:variable key="idTransaccionCore" value="#['']"/>
+                    </munit-tools:variables>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+
+        <munit:execution>
+            <munit-tools:set-event doc:id="aa000042-0004-0004-0004-000000000042">
+                <munit-tools:payload mediaType="application/json"
+                    value='#[output application/json --- {cuentaOrigen: "100200300", cuentaDestino: "900800700", codigoBanco: "BIZ-0042", monto: 150.75, moneda: "USD", glosa: "Core down test", fechaSolicitud: "2026-10-01T14:32:10-06:00"}]'/>
+                <munit-tools:variables>
+                    <munit-tools:variable key="transactionId" value="t4-idempotency-key"/>
+                </munit-tools:variables>
+            </munit-tools:set-event>
+            <flow-ref name="post-transferencias-impl-sf" doc:id="aa000043-0004-0004-0004-000000000043"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that doc:id="aa000044-0004-0004-0004-000000000044"
+                expression="#[true]"
+                is="#[MunitTools::equalTo(true)]"
+                message="codigo 91 lanzo TRANSFERENCIA:CORE_NO_DISPONIBLE (capturado por expectedErrorType)"/>
+        </munit:validation>
+
+    </munit:test>
+
+    <!-- ================================================================
+         TEST 5 — glosa truncada a 30 chars (upper + [0..29])
+         ================================================================ -->
+    <munit:test name="post-t5-glosa-truncada-30-chars"
+                description="glosa de 48 chars → uppercase + truncada a 30 chars exactos"
+                doc:id="aa000050-0005-0005-0005-000000000050">
+
+        <munit:behavior>
+            <munit-tools:mock-when processor="mule:flow-ref" doc:id="aa000051-0005-0005-0005-000000000051">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="name" whereValue="simulate-core-legado-sf"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:variables>
+                        <munit-tools:variable key="codigoCore"        value="00"/>
+                        <munit-tools:variable key="descripcionCore"   value="Aprobada"/>
+                        <munit-tools:variable key="idTransaccionCore" value="TXN-MOCK-TRUNC"/>
+                    </munit-tools:variables>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+
+        <munit:execution>
+            <munit-tools:set-event doc:id="aa000052-0005-0005-0005-000000000052">
+                <!-- "Pago muy largo que supera los treinta caracteres" = 48 chars -->
+                <munit-tools:payload mediaType="application/json"
+                    value='#[output application/json --- {cuentaOrigen: "100200300", cuentaDestino: "900800700", codigoBanco: "BIZ-0042", monto: 200.00, moneda: "USD", glosa: "Pago muy largo que supera los treinta caracteres", fechaSolicitud: "2026-10-01T14:32:10-06:00"}]'/>
+                <munit-tools:variables>
+                    <munit-tools:variable key="transactionId" value="t5-idempotency-key"/>
+                </munit-tools:variables>
+            </munit-tools:set-event>
+            <flow-ref name="post-transferencias-impl-sf" doc:id="aa000053-0005-0005-0005-000000000053"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that doc:id="aa000054-0005-0005-0005-000000000054"
+                expression="#[sizeOf(payload.enviadoAlCore.glosa as String) == 30]"
+                is="#[MunitTools::equalTo(true)]"
+                message="glosa debe tener exactamente 30 chars"/>
+            <munit-tools:assert-that doc:id="aa000055-0005-0005-0005-000000000055"
+                expression="#[payload.enviadoAlCore.glosa]"
+                is="#[MunitTools::equalTo('PAGO MUY LARGO QUE SUPERA LOS ')]"
+                message="upper('Pago muy largo que supera los treinta...')[0..29] = 'PAGO MUY LARGO QUE SUPERA LOS '"/>
+        </munit:validation>
+
+    </munit:test>
+
+
+</mule>

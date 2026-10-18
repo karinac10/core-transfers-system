@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <!--
+        GET /transferencias/{transferenciaid} — System API
+        Responsabilidad: retornar datos de una transferencia por ID (simulado).
+        No realiza llamadas HTTP a servicios externos.
+    -->
+
+    <sub-flow name="get-transferencia-by-id-impl-sf" doc:id="e3f4a5b6-c7d8-9012-ef34-567890123301">
+
+        <logger level="INFO"
+        doc:name="BEFORE"
+        doc:id="f9b487a2-a8a5-443b-b885-c6b18bcbe44e"
+        message="#[%dw 2.0&#10;
+            output text/plain
+            ---
+            '[get-transferencia] START - transferenciaid: ' ++
+            ((vars.transferenciaid default 'N/A') as String) ++
+            ' | transactionId: ' ++
+            ((vars.transactionId default '') as String)]"/>
+
+        <!-- Extract URI param -->
+        <set-variable variableName="transferenciaid"
+            value="#[attributes.uriParams.transferenciaid]"
+            doc:name="Set transferenciaid"
+            doc:id="a5b6c7d8-e9f0-1234-ab56-789012345303"/>
+
+        <!-- Simulate record lookup: return a representative transfer record -->
+        <ee:transform doc:name="Simulate Get Transferencia" doc:id="b6c7d8e9-f0a1-2345-bc67-890123456304">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+  idTransferencia:   vars.transferenciaid,
+  estado:            "APROBADA",
+  cuentaOrigen:      "100200300",
+  cuentaDestino:     "900800700",
+  bancoDestino:      "BIZ-0042",
+  monto:             150.75,
+  moneda:            "USD",
+  enviadoAlCore: {
+    glosa:     "PAGO DE ALQUILER",
+    fechaHora: "20261001203210"
+  },
+  fechaProcesamiento: "2026-10-01T20:32:10Z"
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+
+        <logger level="INFO"
+        doc:name="AFTER"
+        doc:id="986ddac2-1abb-4d4f-87e2-67748bc0aece"
+        message="#[%dw 2.0&#10;
+            output text/plain
+            ---
+            '[get-transferencia] END - transferenciaid: ' ++
+            ((vars.transferenciaid default 'N/A') as String) ++
+            ' | transactionId: ' ++
+            ((vars.transactionId default '') as String)]"/>
+
+    </sub-flow>
+
+</mule>

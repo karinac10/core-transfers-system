@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <!--
+        POST /transferencias — System API
+        Responsabilidad:
+          1. Transformar JSON (formato móvil) → XML (formato exacto del core bancario legado)
+          2. Simular la respuesta del core (sub-flow independiente, mockeable en MUnit)
+          3. Mapear códigos del core (51/62/91) a errores de negocio Mule
+          4. Retornar respuesta JSON al Process API
+    -->
+
+    <sub-flow name="post-transferencias-impl-sf" doc:id="c8d9e0f1-a2b3-4567-cd89-012345678201">
+
+        <logger level="INFO"
+        doc:name="BEFORE"
+        doc:id="32dd3bed-b7e4-4ef1-8098-420086500ccc"
+        message="#[%dw 2.0&#10;            output text/plain&#10;            ---&#10;            '[post-transferencias] START - transactionId: ' ++&#10;            ((vars.transactionId default '') as String)]"/>
+
+        <!-- 1. Normalizar glosa (mayúsculas, máx 30 chars) y timestamp UTC — antes del transform -->
+        <ee:transform doc:name="Compute glosaNormalizada and fechaHoraUTC" doc:id="e0f1a2b3-c4d5-6789-ef01-234567890203">
+            <ee:variables>
+                <ee:set-variable variableName="glosaNormalizada"><![CDATA[%dw 2.0
+output application/java
+var glosa = upper((payload.glosa default "") as String)
+---
+if (sizeOf(glosa) > 30)
+    glosa[0 to 29]
+else
+    glosa]]></ee:set-variable>
+                <ee:set-variable variableName="fechaHoraUTC"><![CDATA[%dw 2.0
+output application/java
+---
+((payload.fechaSolicitud as DateTime) >> 'UTC') as String {format: 'yyyyMMddHHmmss'}]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+
+        <!-- 2. JSON → XML: transform exacto al formato del core bancario legado -->
+        <ee:transform doc:name="Build TransferenciaRequest XML" doc:id="a2b3c4d5-e6f7-8901-ab23-456789012205">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/xml
+---
+{
+  TransferenciaRequest: {
+    Origen:      payload.cuentaOrigen,
+    Destino:     payload.cuentaDestino,
+    CodigoBanco: payload.codigoBanco,
+    Importe @(moneda: payload.moneda default "USD"): payload.monto,
+    Glosa:       vars.glosaNormalizada,
+    FechaHora:   vars.fechaHoraUTC
+  }
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+
+        <!-- 3. Simular respuesta del core bancario legado (mockeable en MUnit) -->
+        <logger level="INFO" doc:name="Logger - TransferenciaRequestXML" doc:id="5b2708b9-1475-430e-bd41-ee9812e2e2a5" message="Interbank Transfers - XML: #[payload]"/>
+		<flow-ref name="simulate-core-legado-sf"
+            doc:name="Simulate Core Legado Response"
+            doc:id="b3c4d5e6-f7a8-9012-bc34-567890123206"/>
+
+        <!-- 4. Solo 91 interrumpe el flujo — 00, 51 y 62 retornan 200 con codigoCore para que Process decida -->
+        <choice doc:name="Core 91 -&gt; 503, resto pasa" doc:id="c4d5e6f7-a8b9-0123-cd45-678901234207">
+            <when expression="#[vars.codigoCore == '91']">
+                <raise-error type="TRANSFERENCIA:CORE_NO_DISPONIBLE"
+                    doc:name="Raise: core no disponible (91)"
+                    doc:id="f7a8b9c0-d1e2-3456-fa78-901234567210"/>
+            </when>
+            <otherwise>
+                <logger level="DEBUG"
+        doc:name="Core respondió (00/51/62)"
+        doc:id="dc7978ad-8ccc-4cb6-9aeb-011f4ee57d33"
+        message="#[%dw 2.0&#10;
+            output text/plain
+            ---
+            '[post-transferencias] codigoCore=' ++
+            ((vars.codigoCore default 'N/A') as String) ++
+            ' | transactionId=' ++
+            ((vars.transactionId default '') as String)]"/>
+            </otherwise>
+        </choice>
+
+        <!-- 5. Respuesta 200 con datos raw del core — Process API interpreta el significado del código -->
+        <ee:transform doc:name="Build Core Response (200)" doc:id="b9c0d1e2-f3a4-5678-bc90-123456789212">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+  codigoCore:        vars.codigoCore        default "00",
+  descripcionCore:   vars.descripcionCore   default "",
+  idTransaccionCore: vars.idTransaccionCore default "",
+  enviadoAlCore: {
+    glosa:    vars.glosaNormalizada,
+    fechaHora: vars.fechaHoraUTC
+  },
+  fechaProcesamiento: now() as String {format: "yyyy-MM-dd'T'HH:mm:ss'Z'", timezone: "UTC"}
+}]]></ee:set-payload>
+            </ee:message>
+            <ee:variables>
+                <ee:set-variable variableName="httpStatus">200</ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+
+        <logger level="INFO"
+        doc:name="AFTER"
+        doc:id="3f64001d-9f06-4143-83ce-16ae6740554b"
+        message="#[%dw 2.0&#10;
+            output text/plain
+            ---
+            '[post-transferencias] END - transactionId: ' ++
+            ((vars.transactionId default '') as String) ++
+            ' | codigo=' ++
+            ((vars.codigoCore default 'N/A') as String)]"/>
+
+    </sub-flow>
+
+
+    <!--
+        Simulación del core bancario legado.
+
+        Retorna siempre código 00 (happy path).
+        En MUnit, hacer mock-when sobre este flow-ref para inyectar 51 / 62 / 91:
+
+        <munit-tools:mock-when processor="mule:flow-ref">
+            <munit-tools:with-attributes>
+                <munit-tools:with-attribute attributeName="name" whereValue="simulate-core-legado-sf"/>
+            </munit-tools:with-attributes>
+            <munit-tools:then-return>
+                <munit-tools:variables>
+                    <munit-tools:variable key="codigoCore"      value="51"/>
+                    <munit-tools:variable key="descripcionCore" value="Saldo insuficiente"/>
+                </munit-tools:variables>
+            </munit-tools:then-return>
+        </munit-tools:mock-when>
+
+    -->
+    <!--
+        Magic accounts: el prefijo de cuentaOrigen determina el código simulado.
+          51xxxx → 51 Saldo insuficiente   → Experience 422 SALDO_INSUFICIENTE
+          62xxxx → 62 Cuenta bloqueada     → Experience 422 CUENTA_BLOQUEADA
+          91xxxx → 91 Core no disponible   → Experience 503 SERVICIO_NO_DISPONIBLE
+          otros  → 00 Aprobada             → Experience 201 APROBADA
+    -->
+    <sub-flow name="simulate-core-legado-sf" doc:id="d1e2f3a4-b5c6-7890-de12-345678901214">
+        <choice doc:name="Magic account → codigoCore" doc:id="sim0001-0001-0001-0001-000000000001">
+            <when expression="#[startsWith((payload.TransferenciaRequest.Origen default '') as String, '51')]">
+                <set-variable variableName="codigoCore"      value="51"                 doc:name="51"/>
+                <set-variable variableName="descripcionCore" value="Saldo insuficiente" doc:name="Desc 51"/>
+            </when>
+            <when expression="#[startsWith((payload.TransferenciaRequest.Origen default '') as String, '62')]">
+                <set-variable variableName="codigoCore"      value="62"               doc:name="62"/>
+                <set-variable variableName="descripcionCore" value="Cuenta bloqueada" doc:name="Desc 62"/>
+            </when>
+            <when expression="#[startsWith((payload.TransferenciaRequest.Origen default '') as String, '91')]">
+                <set-variable variableName="codigoCore"      value="91"                   doc:name="91"/>
+                <set-variable variableName="descripcionCore" value="Core no disponible"   doc:name="Desc 91"/>
+            </when>
+            <otherwise>
+                <set-variable variableName="codigoCore"      value="00"       doc:name="00"/>
+                <set-variable variableName="descripcionCore" value="Aprobada" doc:name="Desc 00"/>
+            </otherwise>
+        </choice>
+        <set-variable variableName="idTransaccionCore"
+            value="#['TXN-' ++ ((vars.fechaHoraUTC default '') as String) ++ '-' ++ (uuid() as String)[0 to 7]]"
+            doc:name="ID transacción core simulado"
+            doc:id="a4b5c6d7-e8f9-0123-ab45-678901234217"/>
+    </sub-flow>
+
+</mule>

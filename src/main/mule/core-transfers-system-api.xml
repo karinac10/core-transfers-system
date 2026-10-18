@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd ">
     <http:listener-config name="core-transfers-system-api-httpListenerConfig">
-        <http:listener-connection host="${https.listener.host}" port="${https.listener.port}" />
+        <http:listener-connection host="${secure::https.listener.host}" port="${secure::https.listener.port}" />
     </http:listener-config>
     <apikit:config name="core-transfers-system-api-config" api="resource::c9dbcdc8-e2b1-421f-aeb3-ddbe856d4e2f:core-transfers-system-api:1.0.0:raml:zip:core-transfers-system-api.raml" outboundHeadersMapName="outboundHeaders" httpStatusVarName="httpStatus" />
     <flow name="core-transfers-system-api-main">
@@ -18,12 +18,17 @@
         <apikit:router config-ref="core-transfers-system-api-config" />
         <error-handler>
             <on-error-propagate type="APIKIT:BAD_REQUEST">
-                <ee:transform doc:name="Transform Message">
+                <ee:transform doc:name="400 Bad Request">
                     <ee:message>
                         <ee:set-payload><![CDATA[%dw 2.0
 output application/json
 ---
-{message: "Bad request"}]]></ee:set-payload>
+{
+  codigo:        "VALIDACION_ERROR",
+  mensaje:       "La solicitud no cumple el contrato. " ++ error.detailedDescription,
+  correlationId: vars.transactionId default "",
+  timestamp:     now() as String {format: "yyyy-MM-dd'T'HH:mm:ssXXX"}
+}]]></ee:set-payload>
                     </ee:message>
                     <ee:variables>
                         <ee:set-variable variableName="httpStatus">400</ee:set-variable>
@@ -31,12 +36,17 @@ output application/json
                 </ee:transform>
             </on-error-propagate>
             <on-error-propagate type="APIKIT:NOT_FOUND">
-                <ee:transform doc:name="Transform Message">
+                <ee:transform doc:name="404 Not Found">
                     <ee:message>
                         <ee:set-payload><![CDATA[%dw 2.0
 output application/json
 ---
-{message: "Resource not found"}]]></ee:set-payload>
+{
+  codigo:        "VALIDACION_ERROR",
+  mensaje:       "La ruta solicitada no existe.",
+  correlationId: vars.transactionId default "",
+  timestamp:     now() as String {format: "yyyy-MM-dd'T'HH:mm:ssXXX"}
+}]]></ee:set-payload>
                     </ee:message>
                     <ee:variables>
                         <ee:set-variable variableName="httpStatus">404</ee:set-variable>
@@ -44,12 +54,17 @@ output application/json
                 </ee:transform>
             </on-error-propagate>
             <on-error-propagate type="APIKIT:METHOD_NOT_ALLOWED">
-                <ee:transform doc:name="Transform Message">
+                <ee:transform doc:name="405 Method Not Allowed">
                     <ee:message>
                         <ee:set-payload><![CDATA[%dw 2.0
 output application/json
 ---
-{message: "Method not allowed"}]]></ee:set-payload>
+{
+  codigo:        "VALIDACION_ERROR",
+  mensaje:       "El método no está permitido para este recurso.",
+  correlationId: vars.transactionId default "",
+  timestamp:     now() as String {format: "yyyy-MM-dd'T'HH:mm:ssXXX"}
+}]]></ee:set-payload>
                     </ee:message>
                     <ee:variables>
                         <ee:set-variable variableName="httpStatus">405</ee:set-variable>
@@ -57,12 +72,17 @@ output application/json
                 </ee:transform>
             </on-error-propagate>
             <on-error-propagate type="APIKIT:NOT_ACCEPTABLE">
-                <ee:transform doc:name="Transform Message">
+                <ee:transform doc:name="406 Not Acceptable">
                     <ee:message>
                         <ee:set-payload><![CDATA[%dw 2.0
 output application/json
 ---
-{message: "Not acceptable"}]]></ee:set-payload>
+{
+  codigo:        "VALIDACION_ERROR",
+  mensaje:       "El formato de respuesta solicitado no es aceptable.",
+  correlationId: vars.transactionId default "",
+  timestamp:     now() as String {format: "yyyy-MM-dd'T'HH:mm:ssXXX"}
+}]]></ee:set-payload>
                     </ee:message>
                     <ee:variables>
                         <ee:set-variable variableName="httpStatus">406</ee:set-variable>
@@ -70,12 +90,17 @@ output application/json
                 </ee:transform>
             </on-error-propagate>
             <on-error-propagate type="APIKIT:UNSUPPORTED_MEDIA_TYPE">
-                <ee:transform doc:name="Transform Message">
+                <ee:transform doc:name="415 Unsupported Media Type">
                     <ee:message>
                         <ee:set-payload><![CDATA[%dw 2.0
 output application/json
 ---
-{message: "Unsupported media type"}]]></ee:set-payload>
+{
+  codigo:        "VALIDACION_ERROR",
+  mensaje:       "El tipo de media del cuerpo no es soportado.",
+  correlationId: vars.transactionId default "",
+  timestamp:     now() as String {format: "yyyy-MM-dd'T'HH:mm:ssXXX"}
+}]]></ee:set-payload>
                     </ee:message>
                     <ee:variables>
                         <ee:set-variable variableName="httpStatus">415</ee:set-variable>
@@ -83,12 +108,17 @@ output application/json
                 </ee:transform>
             </on-error-propagate>
             <on-error-propagate type="APIKIT:NOT_IMPLEMENTED">
-                <ee:transform doc:name="Transform Message">
+                <ee:transform doc:name="501 Not Implemented">
                     <ee:message>
                         <ee:set-payload><![CDATA[%dw 2.0
 output application/json
 ---
-{message: "Not Implemented"}]]></ee:set-payload>
+{
+  codigo:        "VALIDACION_ERROR",
+  mensaje:       "La operación no está implementada.",
+  correlationId: vars.transactionId default "",
+  timestamp:     now() as String {format: "yyyy-MM-dd'T'HH:mm:ssXXX"}
+}]]></ee:set-payload>
                     </ee:message>
                     <ee:variables>
                         <ee:set-variable variableName="httpStatus">501</ee:set-variable>
@@ -96,12 +126,17 @@ output application/json
                 </ee:transform>
             </on-error-propagate>
             <on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="f6a7b8c9-d0e1-2345-fa67-012345678555" type="APP:INVALID_PAYLOAD">
-                <ee:transform doc:name="Build Invalid Payload Response" doc:id="a7b8c9d0-e1f2-3456-ab78-012345678666">
+                <ee:transform doc:name="400 Invalid Payload" doc:id="a7b8c9d0-e1f2-3456-ab78-012345678666">
                     <ee:message>
                         <ee:set-payload><![CDATA[%dw 2.0
 output application/json
 ---
-{message: "The JSON payload is malformed."}]]></ee:set-payload>
+{
+  codigo:        "VALIDACION_ERROR",
+  mensaje:       "El cuerpo de la solicitud no es un JSON válido.",
+  correlationId: vars.transactionId default "",
+  timestamp:     now() as String {format: "yyyy-MM-dd'T'HH:mm:ssXXX"}
+}]]></ee:set-payload>
                     </ee:message>
                     <ee:variables>
                         <ee:set-variable variableName="httpStatus">400</ee:set-variable>
@@ -115,31 +150,30 @@ output application/json
             <ee:message>
                 <ee:set-payload><![CDATA[%dw 2.0
 output application/json
+var today = now() >> "America/El_Salvador"
 ---
 {
   estado: "UP",
-  version: "1.0.42",
-  timestamp: "2026-10-01T14:32:11-06:00"
+  version: "1.0.1",
+  timestamp: today
 } as Object {encoding: "UTF-8", mediaType: "application/json"}]]></ee:set-payload>
             </ee:message>
         </ee:transform>
     </flow>
+    <flow name="get:\transferencias\(transferenciaid):core-transfers-system-api-config">
+        <logger level="INFO" doc:name="START" doc:id="d8e9f0a1-b2c3-4567-de89-012345678131"
+            message="START: Inicialización del flujo: #[vars.flowVar] para #[app.name] con transactionId:  #[vars.transactionId]"/>
+        <flow-ref doc:name="get-transferencia-by-id-impl-sf" doc:id="e9f0a1b2-c3d4-5678-ef90-123456789132" name="get-transferencia-by-id-impl-sf"/>
+        <logger level="INFO" doc:name="END" doc:id="f0a1b2c3-d4e5-6789-fa01-234567890133"
+            message="END: Finalización del flujo: #[vars.flowVar] para #[app.name] con transactionId: #[vars.transactionId]"/>
+        <error-handler ref="global-error-handler"/>
+    </flow>
     <flow name="post:\transferencias:application\json:core-transfers-system-api-config">
-        <ee:transform doc:name="Transform Message">
-            <ee:message>
-                <ee:set-payload><![CDATA[%dw 2.0
-output application/json
----
-{
-  codigoCore: "00",
-  descripcionCore: "Aprobada",
-  enviadoAlCore: {
-    glosa: "PAGO DE ALQUILER",
-    fechaHora: "20261001203210"
-  },
-  fechaProcesamiento: "2026-10-01T20:32:11Z"
-} as Object {encoding: "UTF-8", mediaType: "application/json"}]]></ee:set-payload>
-            </ee:message>
-        </ee:transform>
+        <logger level="INFO" doc:name="START" doc:id="f5a6b7c8-d9e0-1234-fa56-789012345105"
+            message="START: Inicialización del flujo: #[vars.flowVar] para #[app.name] con transactionId:  #[vars.transactionId]"/>
+        <flow-ref doc:name="post-transferencias-impl-sf" doc:id="a6b7c8d9-e0f1-2345-ab67-890123456106" name="post-transferencias-impl-sf"/>
+        <logger level="INFO" doc:name="END" doc:id="b7c8d9e0-f1a2-3456-bc78-901234567107"
+            message="END: Finalización del flujo: #[vars.flowVar] para #[app.name] con transactionId: #[vars.transactionId]"/>
+        <error-handler ref="global-error-handler"/>
     </flow>
 </mule>
