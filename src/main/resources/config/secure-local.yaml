@@ -9,18 +9,10 @@ https:
     timeout: "60000"
     path: "/api/*"
 
+api:
+  id: ""
+
 # Until Successful
 untilSuccessful:
   retries: "3"
   delay: "3000"
-
-# Connection to Core Bancario Legado
-core:
-  legado:
-    api:
-      protocol: "HTTP"
-      host: "localhost"
-      port: "9090"
-      timeout: "30000"
-      basepath: "/core/api"
-      transferenciasPath: "/transferencias"

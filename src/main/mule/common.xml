@@ -7,13 +7,15 @@
         http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
 
     <!--
-        Global error handler para la System API.
-        HTTP:CONNECTIVITY / TIMEOUT = core bancario caído.
-        Los códigos de negocio (51, 62) se manejan en el flow de implementación con raise-error.
+        Global error handler — System API.
+        Solo mapea fallos de infraestructura:
+          503 → core no disponible (91, timeout, connectivity)
+          502 → respuesta ilegible del core (HTTP:BAD_RESPONSE)
+          500 → error inesperado
     -->
     <error-handler name="global-error-handler">
 
-        <on-error-propagate type="HTTP:CONNECTIVITY" logException="false" doc:name="Core legado no disponible">
+        <on-error-propagate type="HTTP:CONNECTIVITY" logException="false" doc:name="503 Core no disponible (connectivity)">
             <ee:transform>
                 <ee:message>
                     <ee:set-payload><![CDATA[%dw 2.0
@@ -21,8 +23,9 @@ output application/json
 ---
 {
   codigo:    "CORE_NO_DISPONIBLE",
-  mensaje:   "El core bancario no está disponible. Código: 91.",
-  timestamp: now() as String {format: "yyyy-MM-dd'T'HH:mm:ssZ"}
+  mensaje:   "El core bancario no está disponible (conectividad).",
+  correlationId: vars.transactionId default "",
+  timestamp:     now() as String {format: "yyyy-MM-dd'T'HH:mm:ssXXX"}
 }]]></ee:set-payload>
                 </ee:message>
                 <ee:variables>
@@ -31,7 +34,7 @@ output application/json
             </ee:transform>
         </on-error-propagate>
 
-        <on-error-propagate type="HTTP:TIMEOUT" logException="false" doc:name="Core legado timeout">
+        <on-error-propagate type="HTTP:TIMEOUT" logException="false" doc:name="503 Core no disponible (timeout)">
             <ee:transform>
                 <ee:message>
                     <ee:set-payload><![CDATA[%dw 2.0
@@ -39,8 +42,9 @@ output application/json
 ---
 {
   codigo:    "CORE_NO_DISPONIBLE",
-  mensaje:   "El core bancario no respondió a tiempo. Código: 91.",
-  timestamp: now() as String {format: "yyyy-MM-dd'T'HH:mm:ssZ"}
+  mensaje:   "El core bancario no respondió a tiempo.",
+  correlationId: vars.transactionId default "",
+  timestamp:     now() as String {format: "yyyy-MM-dd'T'HH:mm:ssXXX"}
 }]]></ee:set-payload>
                 </ee:message>
                 <ee:variables>
@@ -49,43 +53,29 @@ output application/json
             </ee:transform>
         </on-error-propagate>
 
-        <on-error-propagate type="TRANSFERENCIA:SALDO_INSUFICIENTE" logException="false" doc:name="422 Saldo insuficiente">
+        <on-error-propagate type="TRANSFERENCIA:CORE_NO_DISPONIBLE" logException="false" doc:name="503 Core no disponible (código 91)">
             <ee:transform>
                 <ee:message>
                     <ee:set-payload><![CDATA[%dw 2.0
 output application/json
 ---
 {
-  codigo:    "SALDO_INSUFICIENTE",
-  mensaje:   "Saldo insuficiente en cuenta de origen. Código core: 51.",
-  timestamp: now() as String {format: "yyyy-MM-dd'T'HH:mm:ssZ"}
+  codigo:    "CORE_NO_DISPONIBLE",
+  mensaje:   "El core bancario reportó no disponibilidad (código 91).",
+  correlationId: vars.transactionId default "",
+  timestamp:     now() as String {format: "yyyy-MM-dd'T'HH:mm:ssXXX"}
 }]]></ee:set-payload>
                 </ee:message>
                 <ee:variables>
-                    <ee:set-variable variableName="httpStatus">422</ee:set-variable>
+                    <ee:set-variable variableName="httpStatus">503</ee:set-variable>
                 </ee:variables>
             </ee:transform>
         </on-error-propagate>
 
-        <on-error-propagate type="TRANSFERENCIA:CUENTA_BLOQUEADA" logException="false" doc:name="422 Cuenta bloqueada">
-            <ee:transform>
-                <ee:message>
-                    <ee:set-payload><![CDATA[%dw 2.0
-output application/json
----
-{
-  codigo:    "CUENTA_BLOQUEADA",
-  mensaje:   "La cuenta está bloqueada. Código core: 62.",
-  timestamp: now() as String {format: "yyyy-MM-dd'T'HH:mm:ssZ"}
-}]]></ee:set-payload>
-                </ee:message>
-                <ee:variables>
-                    <ee:set-variable variableName="httpStatus">422</ee:set-variable>
-                </ee:variables>
-            </ee:transform>
-        </on-error-propagate>
 
         <on-error-propagate type="ANY" logException="true" doc:name="500 Error inesperado">
+            <logger level="ERROR" doc:name="Log error"
+    message="#[%dw 2.0&#10;        output text/plain&#10;        ---&#10;        '[ERROR] flujo: ' ++&#10;        ((vars.flowVar default 'N/A') as String) ++&#10;        ' | transactionId: ' ++&#10;        ((vars.transactionId default 'N/A') as String) ++&#10;        ' | ' ++&#10;        ((error.description default 'Error al procesar la solicitud de transferencia.') as String)]"/>
             <ee:transform>
                 <ee:message>
                     <ee:set-payload><![CDATA[%dw 2.0
@@ -93,8 +83,9 @@ output application/json
 ---
 {
   codigo:    "ERROR_INTERNO",
-  mensaje:   "Error inesperado en la capa de sistema.",
-  timestamp: now() as String {format: "yyyy-MM-dd'T'HH:mm:ssZ"}
+  mensaje:   "Ocurrió un error inesperado. El servicio de transferencias no pudo completar la solicitud.",
+  correlationId: vars.transactionId default "",
+  timestamp:     now() as String {format: "yyyy-MM-dd'T'HH:mm:ssXXX"}
 }]]></ee:set-payload>
                 </ee:message>
                 <ee:variables>
@@ -124,14 +115,23 @@ else
 				</on-error-propagate>
 			</error-handler>
 		</try>
-		<ee:transform doc:name="transactionId and incomingAttr" doc:id="f1e2d3c4-b5a6-7890-ef12-ab3456789006" >
+		<ee:transform doc:name="transactionId, startTime, idempotencyKey and incomingAttr" doc:id="f1e2d3c4-b5a6-7890-ef12-ab3456789006" >
 			<ee:message />
 			<ee:variables >
 				<ee:set-variable variableName="transactionId" ><![CDATA[%dw 2.0
 output application/java
 ---
+attributes.headers."x-correlation-id" default uuid()]]></ee:set-variable>
+				<ee:set-variable variableName="startTime" ><![CDATA[%dw 2.0
+output application/java
+---
+now() as Number {unit: "milliseconds"}]]></ee:set-variable>
+				<ee:set-variable variableName="idempotencyKey" ><![CDATA[%dw 2.0
+output application/java
+---
 attributes.headers."X-Idempotency-Key"]]></ee:set-variable>
-				<ee:set-variable variableName="incomingAttr" ><![CDATA[output application/json
+				<ee:set-variable variableName="incomingAttr" ><![CDATA[%dw 2.0
+output application/json
 ---
 message.attributes]]></ee:set-variable>
 			</ee:variables>

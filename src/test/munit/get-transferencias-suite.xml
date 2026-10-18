@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+        http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd
+        http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <munit:config name="get-transferencias-suite" doc:id="bb000001-0001-0001-0001-000000000001"/>
+
+    <!-- ================================================================
+         TEST 1 — GET /transferencias/{id}: retorna registro simulado 200
+         ================================================================ -->
+    <munit:test name="get-t1-transferencia-por-id"
+                description="GET /transferencias/{id}: retorna datos simulados con idTransferencia y estado APROBADA"
+                doc:id="bb000002-0001-0001-0001-000000000002">
+
+        <munit:execution>
+            <munit-tools:set-event doc:id="bb000003-0001-0001-0001-000000000003">
+                <munit-tools:payload mediaType="application/json" value="#[{}]"/>
+                <munit-tools:attributes
+                    value='#[output application/java --- {uriParams: {transferenciaid: "TXN-20261001203210-abc12345"}, method: "GET", headers: {}, requestPath: "/api/transferencias/TXN-20261001203210-abc12345", requestUri: "/api/transferencias/TXN-20261001203210-abc12345"}]'/>
+                <munit-tools:variables>
+                    <munit-tools:variable key="transactionId" value="get-t1-key"/>
+                </munit-tools:variables>
+            </munit-tools:set-event>
+            <flow-ref name="get-transferencia-by-id-impl-sf" doc:id="bb000004-0001-0001-0001-000000000004"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that doc:id="bb000005-0001-0001-0001-000000000005"
+                expression="#[payload.idTransferencia]"
+                is="#[MunitTools::equalTo('TXN-20261001203210-abc12345')]"
+                message="idTransferencia debe coincidir con el ID solicitado"/>
+            <munit-tools:assert-that doc:id="bb000006-0001-0001-0001-000000000006"
+                expression="#[payload.estado]"
+                is="#[MunitTools::equalTo('APROBADA')]"
+                message="estado debe ser APROBADA"/>
+            <munit-tools:assert-that doc:id="bb000007-0001-0001-0001-000000000007"
+                expression="#[payload.enviadoAlCore.glosa]"
+                is="#[MunitTools::not(MunitTools::nullValue())]"
+                message="enviadoAlCore.glosa no debe ser null"/>
+            <munit-tools:assert-that doc:id="bb000008-0001-0001-0001-000000000008"
+                expression="#[payload.monto]"
+                is="#[MunitTools::not(MunitTools::nullValue())]"
+                message="monto no debe ser null"/>
+        </munit:validation>
+
+    </munit:test>
+
+    <!-- ================================================================
+         TEST 2 — GET /health: servicio UP
+         ================================================================ -->
+    <munit:test name="get-t2-health-endpoint"
+                description="GET /health: servicio disponible → estado UP, version no null"
+                doc:id="bb000010-0002-0002-0002-000000000010">
+
+        <munit:execution>
+            <munit-tools:set-event doc:id="bb000011-0002-0002-0002-000000000011">
+                <munit-tools:payload mediaType="application/json" value="#[{}]"/>
+                <munit-tools:variables>
+                    <munit-tools:variable key="transactionId" value="health-t2-key"/>
+                </munit-tools:variables>
+            </munit-tools:set-event>
+            <flow-ref name="get:\health:core-transfers-system-api-config"
+                doc:id="bb000012-0002-0002-0002-000000000012"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that doc:id="bb000013-0002-0002-0002-000000000013"
+                expression="#[payload.estado]"
+                is="#[MunitTools::equalTo('UP')]"
+                message="estado debe ser UP"/>
+            <munit-tools:assert-that doc:id="bb000014-0002-0002-0002-000000000014"
+                expression="#[payload.version]"
+                is="#[MunitTools::not(MunitTools::nullValue())]"
+                message="version no debe ser null"/>
+            <munit-tools:assert-that doc:id="bb000015-0002-0002-0002-000000000015"
+                expression="#[payload.timestamp]"
+                is="#[MunitTools::not(MunitTools::nullValue())]"
+                message="timestamp no debe ser null"/>
+        </munit:validation>
+
+    </munit:test>
+
+    <!-- ================================================================
+         TEST 3 — simulate-core-legado-sf sin mock: ejecuta el default (codigo 00)
+         Cubre el sub-flow real — necesario para cobertura del simulador
+         ================================================================ -->
+    <munit:test name="get-t3-simulate-core-legado-default"
+                description="simulate-core-legado-sf sin mock: retorna codigo 00 por defecto"
+                doc:id="bb000020-0003-0003-0003-000000000020">
+
+        <munit:execution>
+            <!-- Sin mock: el simulador real corre y devuelve codigo 00 -->
+            <munit-tools:set-event doc:id="bb000021-0003-0003-0003-000000000021">
+                <munit-tools:payload mediaType="application/json"
+                    value='#[output application/json --- {cuentaOrigen: "111222333", cuentaDestino: "444555666", codigoBanco: "BIZ-0001", monto: "50.00", moneda: "USD", glosa: "Test sin mock", fechaSolicitud: "2026-10-01T14:32:10-06:00"}]'/>
+                <munit-tools:variables>
+                    <munit-tools:variable key="transactionId" value="get-t3-key"/>
+                </munit-tools:variables>
+            </munit-tools:set-event>
+            <flow-ref name="post-transferencias-impl-sf" doc:id="bb000022-0003-0003-0003-000000000022"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that doc:id="bb000023-0003-0003-0003-000000000023"
+                expression="#[vars.httpStatus]"
+                is="#[MunitTools::equalTo(200)]"
+                message="httpStatus debe ser 200 con simulador default"/>
+            <munit-tools:assert-that doc:id="bb000024-0003-0003-0003-000000000024"
+                expression="#[payload.codigoCore]"
+                is="#[MunitTools::equalTo('00')]"
+                message="simulador default devuelve codigoCore=00"/>
+            <munit-tools:assert-that doc:id="bb000025-0003-0003-0003-000000000025"
+                expression="#[payload.idTransaccionCore]"
+                is="#[MunitTools::not(MunitTools::nullValue())]"
+                message="idTransaccionCore generado por el simulador no debe ser null"/>
+        </munit:validation>
+
+    </munit:test>
+
+    <!-- ================================================================
+         TEST 4 — global_apiEntryPoint: payload invalido → APP:INVALID_PAYLOAD
+         expectedErrorType captura el error sin necesitar munit:error-handler
+         ================================================================ -->
+    <munit:test name="get-t4-global-entry-payload-invalido"
+                description="global_apiEntryPoint: payload no parseable → APP:INVALID_PAYLOAD"
+                expectedErrorType="APP:INVALID_PAYLOAD"
+                doc:id="bb000030-0004-0004-0004-000000000030">
+
+        <munit:execution>
+            <munit-tools:set-event doc:id="bb000031-0004-0004-0004-000000000031">
+                <munit-tools:payload mediaType="text/plain" value="payload-no-valido"/>
+                <munit-tools:attributes
+                    value='#[output application/java --- {method: "POST", headers: {}, requestPath: "/api/transferencias", requestUri: "/api/transferencias"}]'/>
+            </munit-tools:set-event>
+            <flow-ref name="global_apiEntryPoint" doc:id="bb000032-0004-0004-0004-000000000032"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that doc:id="bb000033-0004-0004-0004-000000000033"
+                expression="#[true]"
+                is="#[MunitTools::equalTo(true)]"
+                message="APP:INVALID_PAYLOAD lanzo (capturado por expectedErrorType)"/>
+        </munit:validation>
+
+    </munit:test>
+
+</mule>
